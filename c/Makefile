@@ -10,9 +10,9 @@ SRC_PATH = .
 # Space-separated pkg-config libraries used by this project
 LIBS =
 # General compiler flags
-COMPILE_FLAGS = -std=c99 -Wall -Wextra -g
+COMPILE_FLAGS = -std=c11 -Wall -Wextra -g
 # Additional release-specific flags
-RCOMPILE_FLAGS = -D NDEBUG
+RCOMPILE_FLAGS = -D NDEBUG -O3
 # Additional debug-specific flags
 DCOMPILE_FLAGS = -D DEBUG
 # Add additional include paths
@@ -31,7 +31,7 @@ INSTALL_PREFIX = usr/local
 
 # Optionally you may move the section above to a separate config.mk file, and
 # uncomment the line below
-# include config.mk
+include config.mk
 
 # Generally should not need to edit below this line
 
@@ -101,23 +101,6 @@ OBJECTS = $(SOURCES:$(SRC_PATH)/%.$(SRC_EXT)=$(BUILD_PATH)/%.o)
 # Set the dependency files that will be used to add header dependencies
 DEPS = $(OBJECTS:.o=.d)
 
-# Macros for timing compilation
-ifeq ($(UNAME_S),Darwin)
-	CUR_TIME = awk 'BEGIN{srand(); print srand()}'
-	TIME_FILE = $(dir $@).$(notdir $@)_time
-	START_TIME = $(CUR_TIME) > $(TIME_FILE)
-	END_TIME = read st < $(TIME_FILE) ; \
-		$(RM) $(TIME_FILE) ; \
-		st=$$((`$(CUR_TIME)` - $$st)) ; \
-		echo $$st
-else
-	TIME_FILE = $(dir $@).$(notdir $@)_time
-	START_TIME = date '+%s' > $(TIME_FILE)
-	END_TIME = read st < $(TIME_FILE) ; \
-		$(RM) $(TIME_FILE) ; \
-		st=$$((`date '+%s'` - $$st - 86400)) ; \
-		echo `date -u -d @$$st '+%H:%M:%S'`
-endif
 
 # Version macros
 # Comment/remove this section to remove versioning
@@ -150,10 +133,7 @@ ifeq ($(USE_VERSION), true)
 else
 	@echo "Beginning release build"
 endif
-	@$(START_TIME)
 	@$(MAKE) all --no-print-directory
-	@echo -n "Total build time: "
-	@$(END_TIME)
 
 # Debug build for gdb debugging
 .PHONY: debug
@@ -163,10 +143,7 @@ ifeq ($(USE_VERSION), true)
 else
 	@echo "Beginning debug build"
 endif
-	@$(START_TIME)
 	@$(MAKE) all --no-print-directory
-	@echo -n "Total build time: "
-	@$(END_TIME)
 
 # Create the directories used in the build
 .PHONY: dirs
@@ -190,25 +167,28 @@ uninstall:
 # Removes all build files
 .PHONY: clean
 clean:
-	@echo "Deleting $(BIN_NAME) symlink"
-	@$(RM) $(BIN_NAME)
 	@echo "Deleting directories"
 	@$(RM) -r build
 	@$(RM) -r bin
 
 # Main rule, checks the executable and symlinks to the output
 all: $(BIN_PATH)/$(BIN_NAME)
-	@echo "Making symlink: $(BIN_NAME) -> $<"
-	@$(RM) $(BIN_NAME)
-	@ln -s $(BIN_PATH)/$(BIN_NAME) $(BIN_NAME)
+	@cp -vu  $(BIN_PATH)/$(BIN_NAME) $(dir $(BIN_PATH))$(BIN_NAME)
 
 # Link the executable
-$(BIN_PATH)/$(BIN_NAME): $(OBJECTS)
+$(BIN_PATH)/$(basename $(BIN_NAME)): $(OBJECTS)
 	@echo "Linking: $@"
-	@$(START_TIME)
 	$(CMD_PREFIX)$(CC) $(OBJECTS) $(LDFLAGS) -o $@
-	@echo -en "\t Link time: "
-	@$(END_TIME)
+
+# Create static library
+$(BIN_PATH)/$(basename $(BIN_NAME)).a: $(OBJECTS)
+	@echo "Create: $@"
+	$(CMD_PREFIX) ar cr $@ $(OBJECTS)
+
+# Create a shared library
+$(BIN_PATH)/$(basename $(BIN_NAME)).so: $(OBJECTS)
+	@echo "Create: $@"
+	$(CMD_PREFIX)$(CC) -fPIC -shared $(OBJECTS) $(LDFLAGS) -o $@
 
 # Add dependency files, if they exist
 -include $(DEPS)
@@ -218,7 +198,4 @@ $(BIN_PATH)/$(BIN_NAME): $(OBJECTS)
 # dependency files to provide header dependencies
 $(BUILD_PATH)/%.o: $(SRC_PATH)/%.$(SRC_EXT)
 	@echo "Compiling: $< -> $@"
-	@$(START_TIME)
 	$(CMD_PREFIX)$(CC) $(CFLAGS) $(INCLUDES) -MP -MMD -c $< -o $@
-	@echo -en "\t Compile time: "
-	@$(END_TIME)
